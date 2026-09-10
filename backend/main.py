@@ -122,18 +122,18 @@ def get_province_mask() -> np.ndarray:
     if _province_mask_cache is not None:
         return _province_mask_cache
 
-    try:
+ try:
         from shapely.geometry import shape
-        from shapely.vectorized import contains
+        import shapely
 
         with open(_BOUNDARY_PATH, encoding="utf-8") as f:
             boundary = json.load(f)
         polygon = shape(boundary["geometry"])
         LON, LAT = _grid_lonlat()
-        _province_mask_cache = contains(polygon, LON, LAT)
-    except Exception:
-        # ถ้าโหลดขอบเขตไม่สำเร็จ (ไฟล์หาย/shapely ไม่มี) ให้ fallback เป็น
-        # "ทุก cell อยู่ในขอบเขต" (พฤติกรรมเดิมก่อนแก้ไข) แทนที่จะให้ระบบล่ม
+        points = shapely.points(LON.ravel(), LAT.ravel())
+        _province_mask_cache = shapely.contains(polygon, points).reshape(LON.shape)
+    except Exception as e:
+        print(f"⚠️  โหลดขอบเขตจังหวัดไม่สำเร็จ (จะแสดงเป็นสี่เหลี่ยมแทนรูปทรงจริง): {e}")
         _province_mask_cache = np.ones((GRID_HEIGHT, GRID_WIDTH), dtype=bool)
 
     return _province_mask_cache
