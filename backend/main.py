@@ -95,7 +95,7 @@ def calculate_ahp(data: AHPRequest):
 KHONKAEN_BOUNDS = {"west": 101.70, "east": 103.25, "south": 15.55, "north": 17.15}
 # ปรับความละเอียดให้คมชัดขึ้น
 GRID_WIDTH = 480
-   GRID_HEIGHT = 400
+GRID_HEIGHT = 400
 
 raw_layers: dict[str, np.ndarray] = {}
 uploaded_layers: dict[str, np.ndarray] = {}
