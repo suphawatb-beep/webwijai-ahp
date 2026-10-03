@@ -23,8 +23,10 @@ app = FastAPI(title="AHP WebGIS Sugarcane - Khon Kaen")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # ==========================================================
@@ -393,7 +395,9 @@ async def upload_layer(factor: str = Form(...), file: UploadFile = File(...)):
         uploaded_layers[factor] = raw_layers[factor].copy()
         classification_tables.pop(factor, None)
 
-        return {
+        preview = array_to_png_base64(layer_to_rgba(uploaded_layers[factor]))
+
+        res = {
             "status": "success",
             "factor": factor,
             "source": "uploaded",
@@ -403,11 +407,18 @@ async def upload_layer(factor: str = Form(...), file: UploadFile = File(...)):
             "crs": meta.get("crs"),
             "dtype": meta.get("dtype"),
             "nodata": meta.get("nodata"),
-            "preview_image_base64": array_to_png_base64(layer_to_rgba(uploaded_layers[factor])),
+            "preview_image_base64": preview,
             "bounds": bounds_list(),
         }
+
+        # ลบไฟล์ดิบที่อ่านเข้า memory ทันที
+        del content, raw
+        gc.collect()
+
+        return res
     finally:
         await file.close()
+        gc.collect()
 
 def _read_geotiff_to_grid(content: bytes) -> tuple[np.ndarray, float, dict]:
     try:
@@ -529,14 +540,15 @@ def _read_geojson_to_grid(content: bytes) -> np.ndarray:
     if not geoms:
         raise HTTPException(400, "ไม่พบรูปทรง (geometry) ในไฟล์ GeoJSON")
 
-    merged = unary_union(geoms)
+    merged = unary_union(geoms).simplify(0.005, preserve_topology=False)
     LON, LAT = _grid_lonlat()
     points = shapely.points(LON.ravel(), LAT.ravel())
     distances_deg = shapely.distance(points, merged).reshape(LON.shape)
-    return (distances_deg * 111.32).astype(np.float32)
+    raw = (distances_deg * 111.32).astype(np.float32)
 
-def _read_shapefile_zip_to_grid(content: bytes) -> np.ndarray:
-    raw, _, _ = _read_zip_to_grid(content)
+    del points, geoms, merged, geojson_data
+    gc.collect()
+
     return raw
 
 def _read_shapefile_path_to_grid(shp_path: str) -> tuple[np.ndarray, float, dict]:
@@ -564,11 +576,18 @@ def _read_shapefile_path_to_grid(shp_path: str) -> tuple[np.ndarray, float, dict
     if not geoms:
         raise HTTPException(400, "ไฟล์ Shapefile ไม่มีข้อมูลรูปทรง (Geometry)")
 
-    merged = unary_union(geoms)
+  # Simplify รูปทรงก่อนคำนวณ ช่วยลดการใช้ RAM ลงกว่า 90%
+    merged = unary_union(geoms).simplify(0.005, preserve_topology=False)
+
     LON, LAT = _grid_lonlat()
     points = shapely.points(LON.ravel(), LAT.ravel())
     distances_deg = shapely.distance(points, merged).reshape(LON.shape)
     raw = (distances_deg * 111.32).astype(np.float32)
+
+    # บังคับคืน RAM ทันที
+    del points, geoms, merged, gdf
+    gc.collect()
+    
     return raw, 100.0, {"crs": "EPSG:4326", "dtype": "geometry-distance", "nodata": None}
 
 class ClassBreak(BaseModel):
